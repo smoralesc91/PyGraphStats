@@ -8,8 +8,8 @@ __copyright__ = 'Copyright (C) 2023 Rodrigo Lopez Aburto'
 __license__ = 'GNU GPL Version 3.0'
 
 __last_editor__ = 'Sinai Morales Chávez'
-__last_date_edition__ = '2024-10-14'  
-__last_version__ = '1.1'
+__last_date_edition__ = '2026-01-28'  
+__last_version__ = '1.2'
 
 """
 Esta biblioteca contiene funciones para el análisis estadístico y visualización de registros geofísicos de pozo. 
@@ -69,59 +69,94 @@ def Statistics(Data, list_names, language='esp', decimals=4, scientific_notation
                save_png=False, png_filename='statistics', 
                log_transform=False):
     """
-    Function to generate the statistics tables used in the exploratory data analysis section. 
-    The function takes a DataFrame and a list of column names to calculate the statistics.
-    
+    Generates a comprehensive table of descriptive statistics for the specified variables.
+
+    This function acts as a unified interface for Exploratory Data Analysis (EDA), 
+    accepting both Pandas DataFrames and dictionary-like structures containing 
+    NumPy arrays. It calculates measures of 
+    central tendency, dispersion, and distribution shape (skewness/kurtosis).
+
     Parameters
     ----------
-    Data : pd.DataFrame
-        Data for which statistics will be estimated.
+    Data : pd.DataFrame, dict, or openpnm.network.Network
+        The input data source. It can be:
+        - A pandas DataFrame where columns are variables.
+        - A dictionary or array-like structures.
     list_names : list of str
-        Names of the columns of the data for which the statistics will be estimated.
-        The names in the list must match the column names of the DataFrame.
-    language : str, optional
-        Language of the table headers ('esp' for Spanish by default, 'eng' for English).
+        A list of column names (if Data is DataFrame) or keys (if Data is dict) 
+        to be analyzed. Keys not found in `Data` will be skipped with a warning.
+    language : {'esp', 'eng'}, optional
+        The language for the output table headers. 
+        'esp' for Spanish (default) or 'eng' for English.
     decimals : int, optional
-        Number of decimals to display in the results (4 by default).
+        The number of decimal places to round the results to. Default is 4.
     scientific_notation : bool, optional
-        Indicates whether values will be displayed in scientific notation (False by default).
+        If True, formats the output values in scientific notation (e.g., 1.23e-05). 
+        Default is False.
     save_csv : bool, optional
-        Indicates whether to save the table as a CSV file (False by default).
+        If True, saves the resulting statistics table as a .csv file. Default is False.
     csv_filename : str, optional
-        Name of the CSV file to save the table (statistics.csv by default).
+        The base name for the CSV file (without extension). Default is 'statistics'.
     save_png : bool, optional
-        Indicates whether to save the table as a PNG image (False by default).
+        If True, renders and saves the statistics table as a .png image. Default is False.
     png_filename : str, optional
-        Name of the PNG file (statistics.png by default).
+        The base name for the PNG file (without extension). Default is 'statistics'.
     log_transform : bool, optional
-        If True, the data will be transformed to logarithmic scale using natural log (np.log).
-    
+        If True, applies a natural logarithm transformation (np.log) to the data 
+        before calculating statistics. Non-positive values (<= 0) are filtered out 
+        automatically to avoid domain errors. Default is False.
+
     Returns
     -------
     pd.DataFrame
-        DataFrame with the estimated statistics for each column in the list of names.
+        A DataFrame containing the calculated statistics. Rows represent the metrics 
+        (Mean, Median, Std Dev, etc.) and columns represent the variables from `list_names`.
+
+    Raises
+    ------
+    ValueError
+        If `language` is not 'esp' or 'eng'.
+
+    Notes
+    -----
+    The function internally converts NumPy arrays to Pandas Series to utilize 
+    robust statistical methods (like .skew() and .kurtosis()) and handle missing 
+    values (.isna()) consistently across data types.
     """
     
     if language == 'esp':
         Headers = ['Total Muestras', 'Valores nulos', 'Valores no nulos', 'Minimo', '1er Cuartil', 'Mediana', 'Media',
                    '3er Cuartil', 'Maximo', 'Rango', 'Rango Intercuartil',
                    'Varianza', 'Desviacion Estandar', 'Simetria', 'Curtosis']
+        integer_rows = ['Total Muestras', 'Valores nulos', 'Valores no nulos']
     elif language == 'eng':
         Headers = ['Total Samples', 'Null Samples', 'No Null Samples', 'Minimum', '1st Quartile', 'Median', 'Mean',
                    '3rd Quartile', 'Maximum', 'Range', 'Interquartile Range',
                    'Variance', 'Standard Deviation', 'Skewness', 'Kurtosis']
+        integer_rows = ['Total Samples', 'Null Samples', 'No Null Samples']
     else:
-        raise ValueError("language must be 'esp' or 'eng'")
+        raise ValueError("The 'language' parameter must be 'esp' or 'eng'.")
 
     Result = pd.DataFrame(data=np.zeros((len(Headers), len(list_names))), 
                           columns=list_names, index=Headers)
 
     for name in list_names:
-        data_column = Data[name].copy()
+        try:
+            raw_data = Data[name]
+        except KeyError:
+            print(f"Warning: The variable '{name}' was not found in the provided Data.")
+            continue
+            
+        data_column = pd.Series(raw_data).copy()
         
-        # Apply log transformation if requested
+        if data_column.ndim > 1:
+            data_column = pd.Series(data_column.values.flatten())
+
         if log_transform:
-            data_column = data_column[data_column > 0]  # Remove non-positive values for log transformation
+            data_column = data_column[data_column > 0]
+            if len(data_column) == 0:
+                print(f"Warning: Variable '{name}' has no positive values for log transform.")
+                continue
             data_column = np.log(data_column)
         
         Null_samples = int(data_column.isna().sum())
@@ -129,6 +164,12 @@ def Statistics(Data, list_names, language='esp', decimals=4, scientific_notation
         True_values = Total_samples - Null_samples
         
         data_column.dropna(inplace=True)
+
+        if len(data_column) == 0:
+            Result[name] = 0.0
+            Result.loc[Headers[0], name] = Total_samples
+            Result.loc[Headers[1], name] = Null_samples
+            continue
 
         Minimum = data_column.min()
         Quartiles = data_column.quantile([0.25, 0.5, 0.75])
@@ -144,29 +185,45 @@ def Statistics(Data, list_names, language='esp', decimals=4, scientific_notation
         Result[name] = [Total_samples, Null_samples, True_values, Minimum, Quartiles[0.25], Quartiles[0.5], 
                         Mean, Quartiles[0.75], Maximum, Range, IQR, Variance, 
                         Standard_dev, Skewness, Kurtosis]
-
-    Result = Result.round(decimals)
         
     if scientific_notation:
-        Result = Result.applymap(lambda x: f'{x:.{decimals}e}' if pd.notnull(x) else x)
+        formatter_sci = lambda x: f'{x:.{decimals}e}' if pd.notnull(x) and isinstance(x, (int, float)) else x
+        
+        try:
+            Result_Str = Result.map(formatter_sci)
+        except AttributeError:
+            Result_Str = Result.applymap(formatter_sci)
+        
+        for row in integer_rows:
+            if row in Result.index:
+                Result_Str.loc[row] = Result.loc[row].apply(lambda x: f"{int(x)}" if pd.notnull(x) else x)
+        
+        Result = Result_Str
+            
+    else:
+        Result = Result.round(decimals)
+
         
     if save_csv:
-        Result.to_csv(csv_filename + '.csv')
+        Result.to_csv(f"{csv_filename}.csv")
 
     if save_png:
-        fig, ax = plt.subplots(figsize=(11, len(Result) * 0.5))
-        ax.axis('tight')
-        ax.axis('off')
-        table = ax.table(cellText=Result.values, colLabels=Result.columns, 
-                         rowLabels=Result.index, loc='center', cellLoc='center', 
-                         colLoc='center')
-        
-        table.auto_set_font_size(False)
-        table.set_fontsize(11)
-        table.scale(1.2, 1.2)
-        
-        plt.savefig(png_filename + '.png', bbox_inches='tight')
-        plt.close()
+        try:
+            fig, ax = plt.subplots(figsize=(11, len(Result) * 0.5))
+            ax.axis('tight')
+            ax.axis('off')
+            table = ax.table(cellText=Result.values, colLabels=Result.columns, 
+                             rowLabels=Result.index, loc='center', cellLoc='center', 
+                             colLoc='center')
+            
+            table.auto_set_font_size(False)
+            table.set_fontsize(11)
+            table.scale(1.2, 1.2)
+            
+            plt.savefig(f"{png_filename}.png", bbox_inches='tight')
+            plt.close()
+        except Exception as e:
+            print(f"Error saving PNG: {e}")
 
     return Result
 
