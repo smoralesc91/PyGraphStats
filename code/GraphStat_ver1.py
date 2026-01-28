@@ -7,7 +7,7 @@ __version__ = '1.0'
 __copyright__ = 'Copyright (C) 2023 Rodrigo Lopez Aburto'
 __license__ = 'GNU GPL Version 3.0'
 
-__last_editor__ = 'Sinai Morales Chávez'
+__last_editor__ = 'Sinai Morales-Chávez'
 __last_date_edition__ = '2026-01-28'  
 __last_version__ = '1.2'
 
