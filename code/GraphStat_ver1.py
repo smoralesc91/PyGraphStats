@@ -301,7 +301,7 @@ def missing_data_plot(data_depth, depth_units, well_data, figsize=(20, 17), save
 
 ####################################################################################################################################
 
-def Plot_Hist(Data, n_bins='sturges', units='', size=10, language='esp', 
+def Plot_Hist(Data, variable_name=None, n_bins='sturges', units='', size=10, language='esp', 
               mean_line=True, median_line=True, relative_frequency=False,
               show_title=True, save_fig=False, fig_filename='histogram', 
               outlier_limits=False, log_transform=False):
@@ -312,6 +312,8 @@ def Plot_Hist(Data, n_bins='sturges', units='', size=10, language='esp',
     ----------
     Data : pd.Series
         Data used to construct the histogram and boxplot.
+    variable_name=int or str, optional
+        Name of variable. Default plot is 'Variable'
     n_bins : int or str, optional
         Number of bins for the histogram. Default is 'sturges'.
     units : str, optional
@@ -342,7 +344,25 @@ def Plot_Hist(Data, n_bins='sturges', units='', size=10, language='esp',
     fig, axs : matplotlib figure and axes
         The figure and axes of the plot.
     """
+
+    if not isinstance(Data, pd.Series):
+        Data = pd.Series(Data)
+        
+    if variable_name is not None:
+        Data.name = variable_name
+
+    elif Data.name is None:
+        Data.name = "Variable"
     
+
+    Data = Data.copy()
+    Data.dropna(inplace=True)
+
+    if log_transform:
+        Data = Data[Data > 0]
+        Data = np.log(Data)
+        if units: units = f"log({units})"
+
     if language == 'esp':
         title = 'Histograma y Boxplot de %s' % Data.name
         x_label = Data.name + ' [%s]' % units
@@ -362,16 +382,10 @@ def Plot_Hist(Data, n_bins='sturges', units='', size=10, language='esp',
     else:
         raise ValueError("language must be 'esp' or 'eng'")
 
-    Data = Data.copy()
-    Data.dropna(inplace=True)
-
-    if log_transform:
-        Data = np.log(Data[Data > 0])
-
     fig, axs = plt.subplots(2, 1, gridspec_kw={'height_ratios': [0.75, 5]}, figsize=(size, size*0.75), sharex=True)
 
     if show_title:
-        fig.suptitle(title, size=size*2)
+        fig.suptitle(title, size=size*1.5)
 
     boxplot = axs[0].boxplot(Data, vert=False, meanline=False, 
                              showmeans=True, widths=0.70, 
@@ -382,10 +396,11 @@ def Plot_Hist(Data, n_bins='sturges', units='', size=10, language='esp',
                                         'markerfacecolor': 'red'})
     axs[0].set_yticks([])
 
-    # Get outlier limits from boxplot
     whiskers = [item.get_xdata() for item in boxplot['whiskers']]
-    lower_whisker = whiskers[0][1]
-    upper_whisker = whiskers[1][1]
+    if len(whiskers) > 0:
+        lower_whisker, upper_whisker = whiskers[0][1], whiskers[1][1]
+    else:
+        lower_whisker, upper_whisker = Data.min(), Data.max()
 
     if relative_frequency:
         hist_data = np.histogram(Data, bins=n_bins)
@@ -393,35 +408,32 @@ def Plot_Hist(Data, n_bins='sturges', units='', size=10, language='esp',
         axs[1].bar(hist_data[1][:-1], hist_heights, width=np.diff(hist_data[1]), edgecolor='black', facecolor='silver', align='edge')
         y_label = y_label_rel
     else:
-        hist_data = np.histogram(Data, bins=n_bins)
-        axs[1].hist(Data, bins=n_bins, edgecolor='black', facecolor='silver')
-        hist_heights = hist_data[0]
+        hist_heights, bins, _ = axs[1].hist(Data, bins=n_bins, edgecolor='black', facecolor='silver')
+        hist_data = (hist_heights, bins)
         y_label = y_label_abs
 
     bin_centers = np.diff(hist_data[1]) * 0.5 + hist_data[1][:-1]
-    for n, (height, x) in enumerate(zip(hist_heights, bin_centers)):
-        axs[1].annotate(f"{int(height) if not relative_frequency else round(height, 2)}", 
-                        xy=(x, height), xytext=annotation_offset,
-                        textcoords="offset points", ha='center', va='bottom', size=11)
+    
+    if len(bin_centers) < 50:
+        for n, (height, x) in enumerate(zip(hist_heights, bin_centers)):
+            if height > 0:
+                val = int(height) if not relative_frequency else round(height, 2)
+                axs[1].annotate(f"{val}", xy=(x, height), xytext=annotation_offset,
+                                textcoords="offset points", ha='center', va='bottom', size=10)
 
     axs[1].set_xlabel(x_label)
     axs[1].set_ylabel(y_label)
     
-    if mean_line:
-        axs[1].axvline(x=Data.mean(), color='r', linestyle='--', label=mean_label)
-    if median_line:
-        axs[1].axvline(x=Data.median(), color='blue', linestyle='--', label=median_label)
-    
+    if mean_line: axs[1].axvline(x=Data.mean(), color='r', linestyle='--', label=mean_label)
+    if median_line: axs[1].axvline(x=Data.median(), color='blue', linestyle='--', label=median_label)
     if outlier_limits:
         axs[1].axvline(x=lower_whisker, color='gray', linestyle='--')
         axs[1].axvline(x=upper_whisker, color='gray', linestyle='--')
     
     axs[1].legend(loc='upper right', fontsize='large')
-
     plt.subplots_adjust(wspace=0, hspace=0)
     
-    if save_fig:
-        plt.savefig(fig_filename+'.png', bbox_inches='tight')
+    if save_fig: plt.savefig(fig_filename+'.png', bbox_inches='tight')
     
     return fig, axs
     
